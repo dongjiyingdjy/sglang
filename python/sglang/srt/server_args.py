@@ -380,6 +380,9 @@ class ServerArgs:
     dp_size: int = 1
     load_balance_method: str = "auto"
 
+    attn_cp_size: int = 1
+    moe_cp_size: int = 1
+    
     # Multi-node distributed serving
     dist_init_addr: Optional[str] = None
     nnodes: int = 1
@@ -2890,6 +2893,20 @@ class ServerArgs:
             help="The tensor parallelism size.",
         )
         parser.add_argument(
+            "--attention-context-parallel-size",
+            "--attn-cp-size",
+            type=int,
+            default=ServerArgs.attn_cp_size,
+            help="The attention context parallelism size.",
+        )
+        parser.add_argument(
+            "--moe-context-parallel-size",
+            "--moe-cp-size",
+            type=int,
+            default=ServerArgs.moe_cp_size,
+            help="The moe context parallelism size.",
+        )
+        parser.add_argument(
             "--pipeline-parallel-size",
             "--pp-size",
             type=int,
@@ -4556,6 +4573,8 @@ class ServerArgs:
     def from_cli_args(cls, args: argparse.Namespace):
         args.tp_size = args.tensor_parallel_size
         args.pp_size = args.pipeline_parallel_size
+        args.attn_cp_size = args.attention_context_parallel_size
+        args.moe_cp_size = args.moe_context_parallel_size
         args.dp_size = args.data_parallel_size
         args.ep_size = args.expert_parallel_size
 

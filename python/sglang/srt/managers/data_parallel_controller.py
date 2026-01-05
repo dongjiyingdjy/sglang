@@ -443,7 +443,10 @@ class DataParallelController:
             tp_size_per_node * (server_args.node_rank % nnodes_per_tp_group),
             tp_size_per_node * (server_args.node_rank % nnodes_per_tp_group + 1),
         )
-
+ 
+        # cp would not be used 
+        attn_cp_rank = 0
+        moe_cp_rank = 0
         for pp_rank in pp_rank_range:
             for tp_rank in tp_rank_range:
                 rank_port_args = port_args
@@ -480,6 +483,8 @@ class DataParallelController:
                             rank_port_args,
                             gpu_id,
                             tp_rank,
+                            attn_cp_rank,
+                            moe_cp_rank,
                             moe_ep_rank,
                             pp_rank,
                             dp_rank,

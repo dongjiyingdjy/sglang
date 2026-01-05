@@ -14,6 +14,9 @@ from sglang.srt.distributed import (
     GroupCoordinator,
     get_tensor_model_parallel_rank,
     get_tensor_model_parallel_world_size,
+    get_attn_tensor_model_parallel_rank,
+    get_attn_tensor_model_parallel_world_size,
+    get_attn_tp_group,
     get_tp_group,
     tensor_model_parallel_all_reduce,
 )
@@ -267,15 +270,16 @@ def initialize_dp_attention(
     moe_dense_tp_size = server_args.moe_dense_tp_size
     pp_size = server_args.pp_size
 
-    tp_rank = get_tensor_model_parallel_rank()
+    attn_tp_rank = get_attention_tp_rank()
+    attn_tp_size = get_attention_tp_size()
 
     _ENABLE_DP_ATTENTION_FLAG = enable_dp_attention
 
     _ATTN_TP_RANK, _ATTN_TP_SIZE, _ATTN_DP_RANK = compute_dp_attention_world_info(
-        enable_dp_attention, tp_rank, tp_size, dp_size
+        enable_dp_attention, attn_tp_rank, attn_tp_size, dp_size
     )
     _, _, _LOCAL_ATTN_DP_RANK = compute_dp_attention_local_info(
-        enable_dp_attention, tp_rank, tp_size, dp_size, moe_dense_tp_size
+        enable_dp_attention, attn_tp_rank, attn_tp_size, dp_size, moe_dense_tp_size
     )
 
     if enable_dp_attention:
@@ -288,27 +292,27 @@ def initialize_dp_attention(
         _ATTN_DP_SIZE = 1
         _LOCAL_ATTN_DP_SIZE = 1
 
-    tp_group = get_tp_group()
+    # tp_group = get_tp_group()
     # Trick to solve circular references
-    from sglang.srt.layers.attention.nsa.utils import is_nsa_enable_prefill_cp
+    # from sglang.srt.layers.attention.nsa.utils import is_nsa_enable_prefill_cp
 
-    use_pynccl = True if is_nsa_enable_prefill_cp() else SYNC_TOKEN_IDS_ACROSS_TP
-    _ATTN_TP_GROUP = GroupCoordinator(
-        [
-            list(range(head, head + _ATTN_TP_SIZE))
-            for head in range(0, pp_size * tp_size, _ATTN_TP_SIZE)
-        ],
-        tp_group.local_rank,
-        torch.distributed.get_backend(tp_group.device_group),
-        use_pynccl=use_pynccl,
-        use_pymscclpp=False,
-        use_custom_allreduce=False,
-        use_torch_symm_mem_all_reduce=False,
-        use_hpu_communicator=False,
-        use_xpu_communicator=False,
-        use_npu_communicator=False,
-        group_name="attention_tp",
-    )
+    # use_pynccl = True if is_nsa_enable_prefill_cp() else SYNC_TOKEN_IDS_ACROSS_TP
+    # _ATTN_TP_GROUP = GroupCoordinator(
+    #     [
+    #         list(range(head, head + _ATTN_TP_SIZE))
+    #         for head in range(0, pp_size * tp_size, _ATTN_TP_SIZE)
+    #     ],
+    #     tp_group.local_rank,
+    #     torch.distributed.get_backend(tp_group.device_group),
+    #     use_pynccl=use_pynccl,
+    #     use_pymscclpp=False,
+    #     use_custom_allreduce=False,
+    #     use_torch_symm_mem_all_reduce=False,
+    #     use_hpu_communicator=False,
+    #     use_xpu_communicator=False,
+    #     use_npu_communicator=False,
+    #     group_name="attention_tp",
+    # )
 
     _DpGatheredBufferWrapper.set_metadata(
         hidden_size=model_config.hidden_size,
@@ -326,19 +330,13 @@ def is_allocation_symmetric() -> bool:
 
 
 def get_attention_tp_group() -> GroupCoordinator:
-    assert _ATTN_TP_GROUP is not None, "dp attention not initialized!"
-    return _ATTN_TP_GROUP
-
+    return get_attn_tp_group()
 
 def get_attention_tp_rank() -> int:
-    assert _ATTN_TP_RANK is not None, "dp attention not initialized!"
-    return _ATTN_TP_RANK
-
+    return get_attn_tensor_model_parallel_rank()
 
 def get_attention_tp_size() -> int:
-    assert _ATTN_TP_SIZE is not None, "dp attention not initialized!"
-    return _ATTN_TP_SIZE
-
+    return get_attn_tensor_model_parallel_world_size()  
 
 def get_attention_dp_rank() -> int:
     assert _ATTN_DP_RANK is not None, "dp attention not initialized!"
