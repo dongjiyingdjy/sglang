@@ -256,6 +256,8 @@ class Scheduler(
         tp_rank: int,
         moe_ep_rank: int,
         pp_rank: int,
+        attn_cp_rank: int,
+        moe_cp_rank: int,
         dp_rank: Optional[int],
     ):
         self.is_initializing = True
@@ -266,6 +268,10 @@ class Scheduler(
         self.tp_rank = tp_rank
         self.moe_ep_rank = moe_ep_rank
         self.pp_rank = pp_rank
+        self.attn_cp_rank = attn_cp_rank
+        self.attn_cp_size = server_args.attn_cp_size
+        self.moe_cp_rank = moe_cp_rank
+        self.moe_cp_size = server_args.moe_cp_size
         self.dp_rank = dp_rank
         self.tp_size = server_args.tp_size
         self.moe_ep_size = server_args.ep_size
@@ -313,6 +319,7 @@ class Scheduler(
                 self.tp_rank,
                 self.tp_size,
                 self.dp_size,
+                self.attn_cp_size,
             )
         )
 
@@ -485,6 +492,8 @@ class Scheduler(
             tp_rank=self.tp_rank,
             moe_ep_rank=self.moe_ep_rank,
             pp_rank=self.pp_rank,
+            attn_cp_rank=self.attn_cp_rank,
+            moe_cp_rank=self.moe_cp_rank,
             dp_rank=self.dp_rank,
             nccl_port=self.nccl_port,
         )
@@ -2762,6 +2771,8 @@ def run_scheduler_process(
     port_args: PortArgs,
     gpu_id: int,
     tp_rank: int,
+    attn_cp_rank: int,
+    moe_cp_rank: int,
     moe_ep_rank: int,
     pp_rank: int,
     dp_rank: Optional[int],
@@ -2776,6 +2787,10 @@ def run_scheduler_process(
         prefix += f" DP{dp_rank}"
     if server_args.pp_size > 1:
         prefix += f" PP{pp_rank}"
+    if server_args.attn_cp_size > 1:
+        prefix += f" ATTN_CP{attn_cp_rank}"
+    if server_args.moe_cp_size > 1:
+        prefix += f" MOE_CP{moe_cp_rank}"
     if server_args.tp_size > 1:
         prefix += f" TP{tp_rank}"
     if server_args.ep_size > 1:
@@ -2820,6 +2835,8 @@ def run_scheduler_process(
             tp_rank,
             moe_ep_rank,
             pp_rank,
+            attn_cp_rank,
+            moe_cp_rank,
             dp_rank,
         )
         result_dict = {

@@ -14,6 +14,7 @@ from sglang.srt.layers.dp_attention import (
     get_attention_tp_rank,
     get_attention_tp_size,
 )
+from sglang.srt.distributed.parallel_state import get_attn_cp_group 
 from sglang.srt.server_args import get_global_server_args
 
 if TYPE_CHECKING:
@@ -277,7 +278,7 @@ def cp_attn_tp_all_gather_reorganazied_into_tensor(
         dtype=input_.dtype,
     )
     # step2
-    get_attention_tp_group().cp_all_gather_into_tensor_async(
+    get_attn_cp_group().cp_all_gather_into_tensor_async(
         input_tensor_all, input_, stream_op
     )
     # step3

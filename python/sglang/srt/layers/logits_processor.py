@@ -200,6 +200,7 @@ class LogitsMetadata:
 
     def compute_dp_attention_metadata(self):
 
+        # print(f"self.global_num_tokens_for_logprob_gpu: {self.global_num_tokens_for_logprob_gpu}")
         cumtokens = torch.cumsum(self.global_num_tokens_for_logprob_gpu, dim=0)
         dp_rank = get_attention_dp_rank()
         if dp_rank == 0:

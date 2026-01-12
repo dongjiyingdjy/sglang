@@ -7,7 +7,7 @@ from sglang.test.test_utils import ModelLaunchSettings, is_blackwell_system
 
 register_cuda_ci(est_time=18000, suite="nightly-8-gpu-common", nightly=True)
 
-DEEPSEEK_V32_EXP_MODEL_PATH = "deepseek-ai/DeepSeek-V3.2-Exp"
+DEEPSEEK_V32_EXP_MODEL_PATH = "/home/scratch.trt_llm_data/llm-models/DeepSeek-V3.2-Exp-hf/"
 
 BASE_ARGS = [
     "--trust-remote-code",
@@ -18,14 +18,15 @@ BASE_ARGS = [
 DP_ARGS = [
     "--tp=8",
     "--dp=2",
+    "--attn-cp-size=4",
     "--enable-dp-attention",
 ]
 
 MTP_ARGS = [
-    "--speculative-algorithm=EAGLE",
-    "--speculative-num-steps=3",
-    "--speculative-eagle-topk=1",
-    "--speculative-num-draft-tokens=4",
+    # "--speculative-algorithm=EAGLE",
+    # "--speculative-num-steps=3",
+    # "--speculative-eagle-topk=1",
+    # "--speculative-num-draft-tokens=4",
     "--mem-frac=0.7",
     "--cuda-graph-max-bs=32",
     "--max-running-requests=32",

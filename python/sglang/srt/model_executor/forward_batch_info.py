@@ -29,6 +29,7 @@ ScheduleBatch -> ModelWorkerBatch -> ForwardBatch
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import IntEnum, auto
 from functools import total_ordering
@@ -813,6 +814,12 @@ class ForwardBatch:
             # tokens should be padded to the same length. We will also use
             # reduce-scatter instead of all-reduce after MLP.
             max_num_tokens = max(global_num_tokens)
+            # # `dp_reduce_scatter_tensor()` later splits the global buffer by TP world size.
+            # # Ensure (max_num_tokens * sync_group_size) is divisible by TP size to keep
+            # # per-rank chunks equal-sized.
+            # tp_size = get_tensor_model_parallel_world_size()
+            # align = tp_size // math.gcd(tp_size, sync_group_size)
+            # max_num_tokens = ceil_align(max_num_tokens, align)
             global_num_tokens = [max_num_tokens] * sync_group_size
             buffer_len = max_num_tokens * sync_group_size
         else:
@@ -880,6 +887,9 @@ class ForwardBatch:
 
     def _pad_inputs_to_size(self, model_runner: ModelRunner, num_tokens, bs):
         # padding
+        # print(f"num_tokens: {num_tokens}")
+        # print(f"bs: {bs}") 
+        # print(f"self.input_ids.shape: {self.input_ids.shape}")
         self.input_ids = self._pad_tensor_to_size(self.input_ids, num_tokens)
         self.req_pool_indices = self._pad_tensor_to_size(self.req_pool_indices, bs)
         self.lora_ids.extend((bs - len(self.lora_ids)) * [None])

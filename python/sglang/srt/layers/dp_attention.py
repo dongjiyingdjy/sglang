@@ -14,6 +14,9 @@ from sglang.srt.distributed import (
     GroupCoordinator,
     get_tensor_model_parallel_rank,
     get_tensor_model_parallel_world_size,
+    get_attn_tensor_model_parallel_rank,
+    get_attn_tensor_model_parallel_world_size,
+    get_attn_tp_group,
     get_tp_group,
     tensor_model_parallel_all_reduce,
 )
@@ -31,9 +34,6 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 
-_ATTN_TP_GROUP: Optional[GroupCoordinator] = None
-_ATTN_TP_RANK: Optional[int] = None
-_ATTN_TP_SIZE: Optional[int] = None
 _ATTN_DP_RANK: Optional[int] = None
 _ATTN_DP_SIZE: Optional[int] = None
 _LOCAL_ATTN_DP_SIZE: Optional[int] = None
@@ -224,30 +224,46 @@ def is_dp_max_padding() -> bool:
     return _DpGatheredBufferWrapper.is_dp_max_padding()
 
 
-def compute_dp_attention_world_info(enable_dp_attention, tp_rank, tp_size, dp_size):
-    if not enable_dp_attention:
-        return tp_rank, tp_size, 0
-
-    attn_tp_size = tp_size // dp_size
-    attn_dp_rank = tp_rank // attn_tp_size
+def compute_dp_attention_world_info(
+    enable_dp_attention, tp_rank, tp_size, dp_size, attn_cp_size: int = 1
+):
+    attn_dp_size = dp_size if enable_dp_attention else 1
+    attn_tp_size = tp_size // attn_dp_size // attn_cp_size
     attn_tp_rank = tp_rank % attn_tp_size
+
+    if not enable_dp_attention:
+        attn_dp_rank = 0
+    else:
+        # Rank layout is (cp, dp, tp) where tp is the fastest-changing dim:
+        # tp_rank = ((cp_rank * dp_size) + dp_rank) * attn_tp_size + attn_tp_rank
+        attn_dp_rank = (tp_rank // attn_tp_size) % dp_size
 
     return attn_tp_rank, attn_tp_size, attn_dp_rank
 
 
 def compute_dp_attention_local_info(
-    enable_dp_attention, tp_rank, tp_size, dp_size, moe_dense_tp_size
+    enable_dp_attention,
+    tp_rank,
+    tp_size,
+    dp_size,
+    moe_dense_tp_size,
+    attn_cp_size: int = 1,
 ):
-    if not enable_dp_attention:
-        return tp_rank, tp_size, 0
-
     local_tp_size = moe_dense_tp_size if moe_dense_tp_size else tp_size
     local_tp_rank = tp_rank % local_tp_size
-    local_dp_size = max(1, dp_size // (tp_size // local_tp_size))
+    if not enable_dp_attention:
+        local_dp_size = 1
+    else:
+        local_dp_size = max(1, dp_size // (tp_size // local_tp_size))
 
-    local_attn_tp_size = local_tp_size // local_dp_size
-    local_attn_dp_rank = local_tp_rank // local_attn_tp_size
+    # fcbehbhevb
+    local_attn_tp_size = local_tp_size // local_dp_size 
     local_attn_tp_rank = local_tp_rank % local_attn_tp_size
+    if not enable_dp_attention:
+        local_attn_dp_rank = 0
+    else:
+        # Same (cp, dp, tp) layout in the local TP domain.
+        local_attn_dp_rank = (local_tp_rank // local_attn_tp_size) % local_dp_size
 
     return local_attn_tp_rank, local_attn_tp_size, local_attn_dp_rank
 
@@ -256,26 +272,23 @@ def initialize_dp_attention(
     server_args: ServerArgs,
     model_config: ModelConfig,
 ):
-    global _ATTN_TP_GROUP, _ATTN_TP_RANK, _ATTN_TP_SIZE, _ATTN_DP_RANK, _ATTN_DP_SIZE
+    global _ATTN_DP_RANK, _ATTN_DP_SIZE
     global _LOCAL_ATTN_DP_SIZE, _LOCAL_ATTN_DP_RANK, _ENABLE_DP_ATTENTION_FLAG
-
-    from sglang.srt.layers.sampler import SYNC_TOKEN_IDS_ACROSS_TP
-
     enable_dp_attention = server_args.enable_dp_attention
-    tp_size = server_args.tp_size
     dp_size = server_args.dp_size
     moe_dense_tp_size = server_args.moe_dense_tp_size
-    pp_size = server_args.pp_size
-
-    tp_rank = get_tensor_model_parallel_rank()
+    attn_cp_size = server_args.attn_cp_size
 
     _ENABLE_DP_ATTENTION_FLAG = enable_dp_attention
 
-    _ATTN_TP_RANK, _ATTN_TP_SIZE, _ATTN_DP_RANK = compute_dp_attention_world_info(
-        enable_dp_attention, tp_rank, tp_size, dp_size
+    tp_rank = get_tensor_model_parallel_rank()
+    tp_size = get_tensor_model_parallel_world_size()
+
+    _, _, _ATTN_DP_RANK = compute_dp_attention_world_info(
+        enable_dp_attention, tp_rank, tp_size, dp_size, attn_cp_size
     )
     _, _, _LOCAL_ATTN_DP_RANK = compute_dp_attention_local_info(
-        enable_dp_attention, tp_rank, tp_size, dp_size, moe_dense_tp_size
+        enable_dp_attention, tp_rank, tp_size, dp_size, moe_dense_tp_size, attn_cp_size
     )
 
     if enable_dp_attention:
@@ -287,28 +300,6 @@ def initialize_dp_attention(
     else:
         _ATTN_DP_SIZE = 1
         _LOCAL_ATTN_DP_SIZE = 1
-
-    tp_group = get_tp_group()
-    # Trick to solve circular references
-    from sglang.srt.layers.attention.nsa.utils import is_nsa_enable_prefill_cp
-
-    use_pynccl = True if is_nsa_enable_prefill_cp() else SYNC_TOKEN_IDS_ACROSS_TP
-    _ATTN_TP_GROUP = GroupCoordinator(
-        [
-            list(range(head, head + _ATTN_TP_SIZE))
-            for head in range(0, pp_size * tp_size, _ATTN_TP_SIZE)
-        ],
-        tp_group.local_rank,
-        torch.distributed.get_backend(tp_group.device_group),
-        use_pynccl=use_pynccl,
-        use_pymscclpp=False,
-        use_custom_allreduce=False,
-        use_torch_symm_mem_all_reduce=False,
-        use_hpu_communicator=False,
-        use_xpu_communicator=False,
-        use_npu_communicator=False,
-        group_name="attention_tp",
-    )
 
     _DpGatheredBufferWrapper.set_metadata(
         hidden_size=model_config.hidden_size,
@@ -326,19 +317,13 @@ def is_allocation_symmetric() -> bool:
 
 
 def get_attention_tp_group() -> GroupCoordinator:
-    assert _ATTN_TP_GROUP is not None, "dp attention not initialized!"
-    return _ATTN_TP_GROUP
-
+    return get_attn_tp_group()
 
 def get_attention_tp_rank() -> int:
-    assert _ATTN_TP_RANK is not None, "dp attention not initialized!"
-    return _ATTN_TP_RANK
-
+    return get_attn_tensor_model_parallel_rank()
 
 def get_attention_tp_size() -> int:
-    assert _ATTN_TP_SIZE is not None, "dp attention not initialized!"
-    return _ATTN_TP_SIZE
-
+    return get_attn_tensor_model_parallel_world_size()  
 
 def get_attention_dp_rank() -> int:
     assert _ATTN_DP_RANK is not None, "dp attention not initialized!"
@@ -550,6 +535,7 @@ def dp_scatter(
 
 
 def dp_reduce_scatter_tensor(output: torch.Tensor, input: torch.Tensor):
+    print("dp_reduce_scatter_tensor: output.shape:", output.shape)
     if get_tensor_model_parallel_world_size() == get_attention_dp_size():
         get_tp_group().reduce_scatter_tensor(output, input)
     else:
@@ -557,6 +543,8 @@ def dp_reduce_scatter_tensor(output: torch.Tensor, input: torch.Tensor):
             get_tensor_model_parallel_world_size()
         )[get_tensor_model_parallel_rank()]
         get_tp_group().reduce_scatter_tensor(scattered_local_tokens, input)
+        print(f"all_gather_into_tensor: {output.shape} {scattered_local_tokens.shape} {input.shape}")
+        print("get_attention_tp_group().world_size:", get_attention_tp_group().world_size)
         get_attention_tp_group().all_gather_into_tensor(output, scattered_local_tokens)
 
 

@@ -48,6 +48,8 @@ from sglang.srt.distributed import (
     get_tensor_model_parallel_world_size,
     tensor_model_parallel_all_gather,
     tensor_model_parallel_all_reduce,
+    get_attn_context_model_parallel_world_size,
+    get_attn_context_model_parallel_rank,
 )
 from sglang.srt.environ import envs
 from sglang.srt.eplb.expert_distribution import get_global_expert_distribution_recorder
@@ -1114,9 +1116,10 @@ class DeepseekV2AttentionMLA(nn.Module):
             assert self.use_nsa, "CP currently only supports deepseek v3.2 model"
         # cp reuse the attn_tp comm group but need to duplicate the weights
         if self.nsa_enable_prefill_cp and self.use_nsa:
-            attn_tp_rank = 0
-            attn_tp_size = 1
-            self.cp_size = get_attention_tp_size()
+            # attn_tp_rank = 0
+            # attn_tp_size = 1
+            # self.cp_size = get_attention_tp_size()
+            self.cp_size = get_attn_context_model_parallel_world_size()
         self.num_heads = num_heads
         assert num_heads % attn_tp_size == 0
         self.num_local_heads = num_heads // attn_tp_size
@@ -1139,6 +1142,7 @@ class DeepseekV2AttentionMLA(nn.Module):
                 prefix=add_prefix("fused_qkv_a_proj_with_mqa", prefix),
             )
             self.q_a_layernorm = RMSNorm(self.q_lora_rank, eps=config.rms_norm_eps)
+            print(f"attn_tp_rank: {attn_tp_rank}, attn_tp_size: {attn_tp_size}")
             self.q_b_proj = ColumnParallelLinear(
                 q_lora_rank,
                 self.num_heads * self.qk_head_dim,
@@ -1651,6 +1655,7 @@ class DeepseekV2AttentionMLA(nn.Module):
         # support allgather+rerrange
         latent_cache[..., : self.kv_lora_rank] = k_nope.squeeze(1)
         latent_cache[..., self.kv_lora_rank :] = k_pe.squeeze(1)
+        print(f"cp_size: {self.cp_size}")
         latent_cache_output = cp_all_gather_rerange_output(
             latent_cache.contiguous(),
             self.cp_size,
@@ -2865,7 +2870,7 @@ class DeepseekV2Model(nn.Module):
         self.pp_group = get_pp_group()
         self.nsa_enable_prefill_cp = is_nsa_enable_prefill_cp()
         if self.nsa_enable_prefill_cp:
-            self.cp_size = get_attention_tp_size()
+            self.cp_size = get_attn_context_model_parallel_world_size()
         else:
             self.cp_size = None
 
@@ -3135,6 +3140,7 @@ class DeepseekV2ForCausalLM(nn.Module):
 
         self.pp_group = get_pp_group()
         self.config = config
+        self.config.num_hidden_layers = 7
         self.tp_size = get_tensor_model_parallel_world_size()
         self.quant_config = quant_config
         self.determine_num_fused_shared_experts()
@@ -3169,8 +3175,8 @@ class DeepseekV2ForCausalLM(nn.Module):
 
         self.nsa_enable_prefill_cp = is_nsa_enable_prefill_cp()
         if self.nsa_enable_prefill_cp:
-            self.cp_rank = get_attention_tp_rank()
-            self.cp_size = get_attention_tp_size()
+            self.cp_rank = get_attn_context_model_parallel_rank()
+            self.cp_size = get_attn_context_model_parallel_world_size()
         else:
             self.cp_rank = self.cp_size = None
 
