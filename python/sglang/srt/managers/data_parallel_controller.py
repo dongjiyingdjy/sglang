@@ -441,7 +441,26 @@ class DataParallelController:
                     + ((pp_rank % pp_size_per_node) * tp_size_per_node)
                     + (tp_rank % tp_size_per_node) * server_args.gpu_id_step
                 )
-                attn_cp_rank = tp_rank // (server_args.tp_size // server_args.attn_cp_size)
+                # Rank layout: (dp, cp, tp), where tp is the fastest-changing dim.
+                # When DP-attention is enabled, `tp_rank` is a linearized rank across
+                # (dp, cp, attn-tp):
+                #   tp_rank = ((dp_rank * cp_size) + cp_rank) * attn_tp_size + attn_tp_rank
+                # -> cp_rank = (tp_rank // attn_tp_size) % cp_size
+                if server_args.attn_cp_size > 1:
+                    if server_args.enable_dp_attention:
+                        attn_tp_size = (
+                            server_args.tp_size
+                            // server_args.dp_size
+                            // server_args.attn_cp_size
+                        )
+                        attn_cp_rank = (
+                            tp_rank // attn_tp_size
+                        ) % server_args.attn_cp_size
+                    else:
+                        attn_tp_size = server_args.tp_size // server_args.attn_cp_size
+                        attn_cp_rank = tp_rank // attn_tp_size
+                else:
+                    attn_cp_rank = 0
                 moe_cp_rank = tp_rank // (server_args.tp_size // server_args.moe_cp_size)
                 moe_ep_rank = tp_rank % (server_args.tp_size // server_args.moe_cp_size) // (server_args.tp_size // server_args.moe_cp_size // server_args.ep_size)
 
@@ -540,6 +559,7 @@ def run_data_parallel_controller_process(
     pipe_writer,
     run_scheduler_process_func: Callable = run_scheduler_process,
 ):
+    # print(f"run_data_parallel_controller_process")
     setproctitle.setproctitle("sglang::data_parallel_controller")
     faulthandler.enable()
     kill_itself_when_parent_died()

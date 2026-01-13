@@ -461,6 +461,7 @@ class ForwardBatch:
 
         # For MLP sync
         if batch.global_num_tokens is not None:
+            print(f"batch.global_num_tokens: {batch.global_num_tokens}")
             assert batch.global_num_tokens_for_logprob is not None
 
             # process global_num_tokens and global_num_tokens_for_logprob
@@ -796,8 +797,8 @@ class ForwardBatch:
 
         global_num_tokens = self.global_num_tokens_cpu
         sync_group_size = len(global_num_tokens)
-        # print(f"sync_group_size: {sync_group_size}")
-        attn_tp_size = 4 
+        attn_tp_size = get_attention_tp_size()
+
 
         for i in range(sync_group_size):
             # make sure that the padded length is divisible by attn_tp_size because we may need reduce-scatter across attn_tp dim.
@@ -820,6 +821,8 @@ class ForwardBatch:
         else:
             buffer_len = sum(global_num_tokens)
 
+        
+        # print(f"get_attention_dp_rank(): {get_attention_dp_rank()}")
         if len(global_num_tokens) > 1:
             # print(f"if: get_attention_dp_rank(): {get_attention_dp_rank()}")
             # print("global_num_tokens:", global_num_tokens)

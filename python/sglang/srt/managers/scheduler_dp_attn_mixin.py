@@ -68,9 +68,63 @@ class MLPSyncBatchInfo:
             group=group,
         )
 
-        tp0_info = global_info_tensor[:, 0, :]
+        # Debug: print per-(dp,cp,tp) num_tokens when they disagree within the same dp shard.
+        # This helps diagnose cases where one (cp,tp) rank is IDLE (num_tokens=0) while others have work.
+        try:
+            group_rank = torch.distributed.get_rank(group=group)
+        except Exception:
+            group_rank = -1
+        if group_rank == 0:
+            for dp_rank in range(self.dp_size):
+                row = global_info_tensor[dp_rank, :, 0]  # num_tokens
+                if row.numel() == 0:
+                    continue
+                if int(row.min().item()) != int(row.max().item()):
+                    world_per_dp = self.tp_size * self.cp_size
+                    vals = row.tolist()
+                    print(
+                        f"[MLPSyncBatchInfo][debug] num_tokens mismatch within dp={dp_rank}: "
+                        f"min={min(vals)} max={max(vals)} (tp_size={self.tp_size}, cp_size={self.cp_size})",
+                        flush=True,
+                    )
+                    for idx, v in enumerate(vals):
+                        cp_rank = idx // self.tp_size
+                        tp_rank = idx % self.tp_size
+                        # Rank-in-this-group is consistent with all_gather ordering.
+                        rank_in_group = dp_rank * world_per_dp + idx
+                        print(
+                            f"[MLPSyncBatchInfo][debug] dp={dp_rank} cp={cp_rank} tp={tp_rank} "
+                            f"rank_in_group={rank_in_group} num_tokens={v}",
+                            flush=True,
+                        )
+
+        # # Aggregate per-DP info across all (cp,tp) ranks.
+        tp0_info = torch.empty((self.dp_size, 6), dtype=torch.int64, device=device)
+        tp0_info[:, 0] = global_info_tensor[:, :, 0].max(dim=1).values  # num_tokens
+        tp0_info[:, 1] = global_info_tensor[:, :, 1].max(dim=1).values  # num_tokens_for_logprob
+        tp0_info[:, 2] = global_info_tensor[:, :, 2].min(dim=1).values  # can_cuda_graph (AND)
+        tp0_info[:, 3] = global_info_tensor[:, :, 3].max(dim=1).values  # is_extend_in_batch (OR)
+        tp0_info[:, 4] = global_info_tensor[:, :, 4].min(dim=1).values  # local_can_run_tbo (AND)
+
+        # For forward mode, ignore IDLE ranks; if multiple non-IDLE modes exist within a DP shard,
+        # set to -1 so the global agreement check fails (disables TBO safely).
+        from sglang.srt.model_executor.forward_batch_info import ForwardMode
+
+        for dp_rank in range(self.dp_size):
+            modes = global_info_tensor[dp_rank, :, 5]
+            non_idle = modes[modes != ForwardMode.IDLE.value]
+            if non_idle.numel() == 0:
+                tp0_info[dp_rank, 5] = ForwardMode.IDLE.value
+            elif torch.all(non_idle == non_idle[0]):
+                tp0_info[dp_rank, 5] = non_idle[0]
+            else:
+                tp0_info[dp_rank, 5] = -1
+
+        # tp0_info = global_info_tensor[:, 0, :]
         self.tp0_info = tp0_info
         self.global_num_tokens = tp0_info[:, 0].tolist()
+        # prit(f"self.global_num_tokens: {self.global_num_tokens}", flush=True)
+
         self.global_num_tokens_for_logprob = tp0_info[:, 1].tolist()
         self.can_cuda_graph = bool(tp0_info[:, 2].min().item())
         self.is_extend_in_batch = bool(tp0_info[:, 3].max().item())
@@ -86,9 +140,11 @@ def _update_gather_batch(
 ):
     # TODO: handle the case when moe_dense_tp_size != 1
     if not require_mlp_tp_gather:
+        print(f"not require_mlp_tp_gather: {mlp_sync_info.num_tokens}")
         batch.global_num_tokens = [mlp_sync_info.num_tokens]
         batch.global_num_tokens_for_logprob = [mlp_sync_info.num_tokens_for_logprob]
     else:
+        print(f"require_mlp_tp_gather: {mlp_sync_info.global_num_tokens}")
         batch.global_num_tokens = mlp_sync_info.global_num_tokens
         batch.global_num_tokens_for_logprob = (
             mlp_sync_info.global_num_tokens_for_logprob
@@ -135,6 +191,9 @@ def prepare_mlp_sync_batch_raw(
             local_batch.return_logprob
             or num_tokens_for_logprob == local_batch.batch_size()
         )
+    if num_tokens > 0:
+        print(f"num_tokens: {num_tokens}, rank: {torch.distributed.get_rank()}")
+    # print(f"num_tokens: {num_tokens}, rank: {torch.distributed.get_rank()}")
 
     skip_all_gather = envs.SGLANG_SCHEDULER_SKIP_ALL_GATHER.get()
     can_cuda_graph = (
@@ -179,6 +238,7 @@ def prepare_mlp_sync_batch_raw(
         )
 
     need_idle_batch = skip_all_gather or max(mlp_sync_info.global_num_tokens) > 0
+    # print(f"need_idle_batch: {need_idle_batch}, {skip_all_gather}, {max(mlp_sync_info.global_num_tokens)}")
     if need_idle_batch:
         batch_to_gather = local_batch
         if local_batch is None:

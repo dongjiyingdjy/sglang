@@ -2275,8 +2275,10 @@ class ModelRunner(ModelRunnerKVCacheMixin):
 
         # For MLP sync
         if forward_batch.global_num_tokens_cpu is not None:
+            print(f"forward_batch.global_num_tokens_cpu: {forward_batch.global_num_tokens_cpu}")
             forward_batch.prepare_mlp_sync_batch(self)
         else:
+            print(f"forward_batch.global_num_tokens_cpu is None")
             forward_batch.prepare_attn_tp_scatter_input(self)
 
         # Normalize num_token_non_padded to be local to this attention TP rank if needed.

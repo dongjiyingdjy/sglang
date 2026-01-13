@@ -234,9 +234,9 @@ def compute_dp_attention_world_info(
     if not enable_dp_attention:
         attn_dp_rank = 0
     else:
-        # Rank layout is (cp, dp, tp) where tp is the fastest-changing dim:
+        # Rank layout is (dp, cp, tp) where tp is the fastest-changing dim:
         # tp_rank = ((cp_rank * dp_size) + dp_rank) * attn_tp_size + attn_tp_rank
-        attn_dp_rank = (tp_rank // attn_tp_size) % dp_size
+        attn_dp_rank = tp_rank // (attn_tp_size * attn_cp_size)
 
     return attn_tp_rank, attn_tp_size, attn_dp_rank
 
@@ -262,8 +262,9 @@ def compute_dp_attention_local_info(
     if not enable_dp_attention:
         local_attn_dp_rank = 0
     else:
-        # Same (cp, dp, tp) layout in the local TP domain.
-        local_attn_dp_rank = (local_tp_rank // local_attn_tp_size) % local_dp_size
+        # Same (dp, cp, tp) layout in the local TP domain.
+        # local_tp_rank = ((dp_rank * attn_cp_size) + cp_rank) * local_attn_tp_size + local_attn_tp_rank
+        local_attn_dp_rank = local_tp_rank // (local_attn_tp_size * attn_cp_size)
 
     return local_attn_tp_rank, local_attn_tp_size, local_attn_dp_rank
 
