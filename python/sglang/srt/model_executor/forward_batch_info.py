@@ -796,7 +796,8 @@ class ForwardBatch:
 
         global_num_tokens = self.global_num_tokens_cpu
         sync_group_size = len(global_num_tokens)
-        attn_tp_size = get_attention_tp_size()
+        # print(f"sync_group_size: {sync_group_size}")
+        attn_tp_size = 4 
 
         for i in range(sync_group_size):
             # make sure that the padded length is divisible by attn_tp_size because we may need reduce-scatter across attn_tp dim.
@@ -814,20 +815,18 @@ class ForwardBatch:
             # tokens should be padded to the same length. We will also use
             # reduce-scatter instead of all-reduce after MLP.
             max_num_tokens = max(global_num_tokens)
-            # # `dp_reduce_scatter_tensor()` later splits the global buffer by TP world size.
-            # # Ensure (max_num_tokens * sync_group_size) is divisible by TP size to keep
-            # # per-rank chunks equal-sized.
-            # tp_size = get_tensor_model_parallel_world_size()
-            # align = tp_size // math.gcd(tp_size, sync_group_size)
-            # max_num_tokens = ceil_align(max_num_tokens, align)
             global_num_tokens = [max_num_tokens] * sync_group_size
             buffer_len = max_num_tokens * sync_group_size
         else:
             buffer_len = sum(global_num_tokens)
 
         if len(global_num_tokens) > 1:
+            # print(f"if: get_attention_dp_rank(): {get_attention_dp_rank()}")
+            # print("global_num_tokens:", global_num_tokens)
             num_tokens = global_num_tokens[get_attention_dp_rank()]
         else:
+            # print(f"get_attention_dp_rank(): {get_attention_dp_rank()}")
+            # print("global_num_tokens:", global_num_tokens)
             num_tokens = global_num_tokens[0]
 
         self.global_dp_buffer_len = buffer_len
