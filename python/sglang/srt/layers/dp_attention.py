@@ -17,6 +17,9 @@ from sglang.srt.distributed import (
     get_attn_tensor_model_parallel_rank,
     get_attn_tensor_model_parallel_world_size,
     get_attn_tp_group,
+    get_attn_cp_group,
+    get_attn_context_model_parallel_rank,
+    get_attn_context_model_parallel_world_size,
     get_tp_group,
     tensor_model_parallel_all_reduce,
 )
@@ -325,6 +328,15 @@ def get_attention_tp_rank() -> int:
 
 def get_attention_tp_size() -> int:
     return get_attn_tensor_model_parallel_world_size()  
+
+def get_attention_cp_group() -> GroupCoordinator:
+    return get_attn_cp_group()
+
+def get_attention_cp_rank() -> int:
+    return get_attn_context_model_parallel_rank()
+
+def get_attention_cp_size() -> int:
+    return get_attn_context_model_parallel_world_size()
 
 def get_attention_dp_rank() -> int:
     assert _ATTN_DP_RANK is not None, "dp attention not initialized!"
