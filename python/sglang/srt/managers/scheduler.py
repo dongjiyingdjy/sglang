@@ -268,7 +268,7 @@ class Scheduler(
         moe_ep_rank: int,
         pp_rank: int,
         attn_cp_rank: int,
-        moe_cp_rank: int,
+        moe_dp_rank: int,
         dp_rank: Optional[int],
     ):
         self.is_initializing = True
@@ -281,8 +281,8 @@ class Scheduler(
         self.pp_rank = pp_rank
         self.attn_cp_rank = attn_cp_rank
         self.attn_cp_size = server_args.attn_cp_size
-        self.moe_cp_rank = moe_cp_rank
-        self.moe_cp_size = server_args.moe_cp_size
+        self.moe_dp_rank = moe_dp_rank
+        self.moe_dp_size = server_args.moe_dp_size
         self.dp_rank = dp_rank
         self.tp_size = server_args.tp_size
         self.moe_ep_size = server_args.ep_size
@@ -519,7 +519,7 @@ class Scheduler(
             moe_ep_rank=self.moe_ep_rank,
             pp_rank=self.pp_rank,
             attn_cp_rank=self.attn_cp_rank,
-            moe_cp_rank=self.moe_cp_rank,
+            moe_dp_rank=self.moe_dp_rank,
             dp_rank=self.dp_rank,
             nccl_port=self.nccl_port,
         )
@@ -539,7 +539,7 @@ class Scheduler(
             target_worker=self.tp_worker,
             dp_rank=self.dp_rank,
             attn_cp_rank=self.attn_cp_rank,
-            moe_cp_rank=self.moe_cp_rank,
+            moe_dp_rank=self.moe_dp_rank,
         )
 
         if self.server_args.speculative_draft_load_format is not None:
@@ -3030,7 +3030,7 @@ def run_scheduler_process(
     gpu_id: int,
     tp_rank: int,
     attn_cp_rank: int,
-    moe_cp_rank: int,
+    moe_dp_rank: int,
     moe_ep_rank: int,
     pp_rank: int,
     dp_rank: Optional[int],
@@ -3047,8 +3047,8 @@ def run_scheduler_process(
         prefix += f" PP{pp_rank}"
     if server_args.attn_cp_size > 1:
         prefix += f" ATTN_CP{attn_cp_rank}"
-    if server_args.moe_cp_size > 1:
-        prefix += f" MOE_CP{moe_cp_rank}"
+    if server_args.moe_dp_size > 1:
+        prefix += f" MOE_DP{moe_dp_rank}"
     if server_args.tp_size > 1:
         prefix += f" TP{tp_rank}"
     if server_args.ep_size > 1:
@@ -3094,7 +3094,7 @@ def run_scheduler_process(
             moe_ep_rank,
             pp_rank,
             attn_cp_rank,
-            moe_cp_rank,
+            moe_dp_rank,
             dp_rank,
         )
         result_dict = {
