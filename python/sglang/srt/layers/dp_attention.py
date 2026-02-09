@@ -379,7 +379,11 @@ def get_dp_local_info(forward_batch: ForwardBatch) -> Tuple[torch.Tensor, torch.
     dp_rank = get_attention_dp_rank()
 
     if forward_batch.dp_local_start_pos is None:
+        torch.cuda.synchronize()
+        print(f"DEBUG get_dp_local_info: rank={torch.distributed.get_rank()}, dp_rank={dp_rank}, forward_batch.global_num_tokens_gpu={forward_batch.global_num_tokens_gpu}", flush=True)
         cumtokens = torch.cumsum(forward_batch.global_num_tokens_gpu, dim=0)
+        torch.cuda.synchronize()
+        print(f"DEBUG get_dp_local_info: rank={torch.distributed.get_rank()}, dp_rank={dp_rank}, cumtokens={cumtokens}", flush=True)
         if dp_rank == 0:
             local_start_pos = torch.zeros_like(cumtokens[0])
         else:

@@ -57,6 +57,8 @@ from sglang.srt.model_executor.forward_batch_deepseek_mha_mixin import (
 )
 from sglang.srt.server_args import get_global_server_args
 from sglang.srt.utils import get_compiler_backend, is_hip, is_npu, support_triton
+import os
+
 from sglang.srt.utils.common import ceil_align
 
 if TYPE_CHECKING:
@@ -436,6 +438,14 @@ class ForwardBatch(ForwardBatchDeepSeekMHAMixin):
 
         # For MLP sync
         if batch.global_num_tokens is not None:
+            if os.environ.get("SGLANG_DEBUG_GLOBAL_NUM_TOKENS"):
+                print(
+                    "DEBUG global_num_tokens: set "
+                    f"forward_mode={ret.forward_mode} "
+                    f"batch_size={ret.batch_size} "
+                    f"global_num_tokens={batch.global_num_tokens}",
+                    flush=True,
+                )
             assert batch.global_num_tokens_for_logprob is not None
 
             # process global_num_tokens and global_num_tokens_for_logprob
@@ -458,6 +468,15 @@ class ForwardBatch(ForwardBatchDeepSeekMHAMixin):
             ret.global_num_tokens_for_logprob_gpu = torch.tensor(
                 global_num_tokens_for_logprob, dtype=torch.int64
             ).to(device, non_blocking=True)
+        else:
+            if os.environ.get("SGLANG_DEBUG_GLOBAL_NUM_TOKENS"):
+                print(
+                    "DEBUG global_num_tokens: missing "
+                    f"forward_mode={ret.forward_mode} "
+                    f"batch_size={ret.batch_size} "
+                    f"spec_info={'set' if batch.spec_info is not None else 'None'}",
+                    flush=True,
+                )
 
         if ret.forward_mode.is_idle():
             ret.positions = torch.empty((0,), dtype=torch.int64, device=device)
@@ -804,6 +823,7 @@ class ForwardBatch(ForwardBatchDeepSeekMHAMixin):
             else:
                 setattr(self, "_original_batch_size", self.batch_size)
                 if self.spec_info is not None:
+                    print(f"DEBUG num_tokens_per_req: {self.spec_info.num_tokens_per_req}")
                     bs = self.batch_size = (
                         num_tokens // self.spec_info.num_tokens_per_req
                     )

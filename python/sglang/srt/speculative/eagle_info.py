@@ -99,6 +99,7 @@ class EagleVerifyInput(SpecInput, EagleVerifyInputV2Mixin):
             capture_hidden_mode=CaptureHiddenMode.FULL,
             seq_lens_sum=0,
             seq_lens_cpu=torch.empty((0,), dtype=torch.int32),
+            num_tokens_per_req=num_verify_tokens,
         )
 
     def prepare_for_verify(self, batch: ScheduleBatch, page_size: int):
@@ -528,6 +529,7 @@ class EagleVerifyInput(SpecInput, EagleVerifyInputV2Mixin):
                 seq_lens_for_draft_extend=batch.seq_lens,
                 seq_lens_for_draft_extend_cpu=batch.seq_lens_cpu,
                 req_pool_indices_for_draft_extend=batch.req_pool_indices,
+                num_tokens_per_req=self.draft_token_num,
             )
 
             return EagleVerifyOutput(
@@ -593,6 +595,7 @@ class EagleVerifyInput(SpecInput, EagleVerifyInputV2Mixin):
                     req_pool_indices_for_draft_extend=batch.req_pool_indices[
                         unfinished_index_device
                     ],
+                    num_tokens_per_req=self.draft_token_num,
                 )
             else:
                 draft_input = EagleDraftInput.create_idle_input(

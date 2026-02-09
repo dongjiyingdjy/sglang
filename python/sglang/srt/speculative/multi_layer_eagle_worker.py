@@ -457,6 +457,7 @@ class MultiLayerEagleWorker(TpModelWorker):
             capture_hidden_mode=CaptureHiddenMode.FULL,
             seq_lens_sum=forward_batch.seq_lens_sum,
             seq_lens_cpu=forward_batch.seq_lens_cpu,
+            num_tokens_per_req=self.server_args.speculative_num_draft_tokens,
         )
 
     def clear_cache_pool(self):
@@ -608,6 +609,7 @@ class MultiLayerEagleWorker(TpModelWorker):
         )
         batch.return_hidden_states = False
         batch.spec_info.prepare_for_extend(batch)
+        batch.spec_info.num_tokens_per_req = 1
         batch.spec_info.capture_hidden_mode = CaptureHiddenMode.LAST
         model_worker_batch = batch.get_model_worker_batch(
             seq_lens_cpu_cache=seq_lens_cpu

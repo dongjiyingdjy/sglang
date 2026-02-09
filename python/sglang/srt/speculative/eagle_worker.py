@@ -606,6 +606,7 @@ class EAGLEWorker(TpModelWorker):
             capture_hidden_mode=CaptureHiddenMode.FULL,
             seq_lens_sum=forward_batch.seq_lens_sum,
             seq_lens_cpu=forward_batch.seq_lens_cpu,
+            num_tokens_per_req=self.server_args.speculative_num_draft_tokens,
         )
 
     def draft_forward(self, forward_batch: ForwardBatch):

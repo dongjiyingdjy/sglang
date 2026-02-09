@@ -270,6 +270,7 @@ class MultiLayerEagleDraftWorker(BaseDraftWorker):
             capture_hidden_mode=None,
             seq_lens_sum=None,
             seq_lens_cpu=None,
+            num_tokens_per_req=self.speculative_num_draft_tokens,
         )
 
     def draft_forward(self, forward_batch: ForwardBatch):
